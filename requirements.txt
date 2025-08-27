@@ -1,2 +1,4 @@
 numpy
 networkx
+
+sudo apt install python3-numpy python3-networkx
