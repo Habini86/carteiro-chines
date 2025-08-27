@@ -71,40 +71,105 @@ def criar_grafo(W: np.ndarray) -> nx.Graph:
     return G
 
 
-def encontrar_rota_euleriana(G: nx.MultiGraph) -> List[int]:
+def reconstruir_caminho(pred: np.ndarray, origem: int, destino: int) -> List[int]:
     """
-    Retorna a rota euleriana do grafo multigrafo.
+    Reconstrói o caminho mínimo entre dois nós usando a matriz de predecessores.
     """
-    return [u for u, v in nx.eulerian_circuit(G)] + [next(nx.eulerian_circuit(G))[0]]
+    if pred[origem, destino] == -1:
+        return []
+    
+    caminho = []
+    atual = destino
+    while atual != origem:
+        caminho.append(atual)
+        atual = pred[origem, atual]
+    caminho.append(origem)
+    return caminho[::-1]
+
+
+def rota_carteiro_chines_geral(coord: np.ndarray, adj: np.ndarray) -> Tuple[List[int], float, bool]:
+    """
+    Implementa a Rota do Carteiro Chinês Geral com Repetição de Arestas.
+    
+    Algoritmo:
+    1. Verifica se o grafo já é Euleriano (todos os vértices têm grau par)
+    2. Se não, encontra vértices de grau ímpar
+    3. Calcula emparelhamento mínimo dos vértices ímpares
+    4. Duplica arestas nos caminhos mínimos entre pares
+    5. Encontra circuito Euleriano no grafo modificado
+    
+    Retorna:
+    - rota: sequência de nós visitados
+    - custo_total: custo total da rota (incluindo repetições)
+    - teve_repeticoes: True se houve repetição de arestas
+    """
+    # 1. Calcular matriz de distâncias e criar grafo
+    W = calcular_matriz_distancias(coord, adj)
+    G = criar_grafo(W)
+    
+    # 2. Verificar se já é Euleriano
+    nos_impares = encontrar_nos_impares(G)
+    teve_repeticoes = len(nos_impares) > 0
+    
+    if not nos_impares:
+        # Grafo já é Euleriano - encontrar circuito Euleriano direto
+        MG = nx.MultiGraph(G)
+        rota = [u for u, v in nx.eulerian_circuit(MG)]
+        custo_total = sum(G[u][v]['weight'] for u, v in zip(rota, rota[1:] + [rota[0]]))
+        return rota, custo_total, False
+    
+    # 3. Calcular menores caminhos entre todos os pares
+    dist, pred = floyd_warshall(W)
+    
+    # 4. Encontrar emparelhamento mínimo dos vértices ímpares
+    pares = emparelhamento_minimo(G, nos_impares, dist)
+    
+    # 5. Criar multigrafo duplicando arestas nos caminhos mínimos
+    MG = nx.MultiGraph(G)
+    custo_repeticoes = 0
+    
+    for u, v in pares:
+        # Encontrar caminho mínimo entre u e v
+        caminho = reconstruir_caminho(pred, u, v)
+        
+        # Duplicar todas as arestas no caminho
+        for i in range(len(caminho) - 1):
+            no1, no2 = caminho[i], caminho[i + 1]
+            peso = W[no1, no2]
+            MG.add_edge(no1, no2, weight=peso)
+            custo_repeticoes += peso
+    
+    # 6. Encontrar circuito Euleriano no grafo modificado
+    rota = [u for u, v in nx.eulerian_circuit(MG)]
+    
+    # 7. Calcular custo total
+    custo_original = sum(G[u][v]['weight'] for u, v in G.edges())
+    custo_total = custo_original + custo_repeticoes
+    
+    return rota, custo_total, teve_repeticoes
 
 
 def pccno(coord: np.ndarray, adj: np.ndarray) -> List[int]:
     """
-    Resolve o Problema do Carteiro Chinês Não-Orientado.
+    Resolve o Problema do Carteiro Chinês Não-Orientado usando Rota com Repetição de Arestas.
+    
+    Este algoritmo sempre permite repetição de arestas quando necessário:
+    1. Identifica vértices de grau ímpar
+    2. Encontra emparelhamento mínimo entre eles
+    3. Duplica arestas nos caminhos mínimos
+    4. Encontra circuito Euleriano no grafo modificado
+    
     coord: coordenadas dos nós
     adj: matriz de adjacência
-    Retorna a sequência de nós da rota euleriana.
+    Retorna a sequência de nós da rota que permite repetições.
     """
-    W = calcular_matriz_distancias(coord, adj)
-    G = criar_grafo(W)
-    nos_impares = encontrar_nos_impares(G)
-    if nos_impares:
-        dist, pred = floyd_warshall(W)
-        pares = emparelhamento_minimo(G, nos_impares, dist)
-        MG = nx.MultiGraph(G)
-        for u, v in pares:
-            # Adiciona aresta duplicada para cada par
-            caminho = []
-            a, b = u, v
-            while b != a:
-                caminho.append(b)
-                b = pred[a, b]
-            caminho = [a] + caminho[::-1]
-            for i in range(len(caminho)-1):
-                MG.add_edge(caminho[i], caminho[i+1], weight=W[caminho[i], caminho[i+1]])
+    rota, custo_total, teve_repeticoes = rota_carteiro_chines_geral(coord, adj)
+    
+    if teve_repeticoes:
+        print(f"Rota com repetição de arestas encontrada. Custo total: {custo_total:.2f}")
     else:
-        MG = nx.MultiGraph(G)
-    rota = [u for u, v in nx.eulerian_circuit(MG)]
+        print(f"Rota Euleriana encontrada (sem repetições). Custo total: {custo_total:.2f}")
+    
     return rota
 
 # Exemplo de uso (dados fictícios):
@@ -123,4 +188,4 @@ if __name__ == "__main__":
         [1, 3, 0, 0, 0]
     ])
     rota = pccno(coord, adj)
-    print("Rota Euleriana:", rota)
+    print("Rota com repetição de arestas:", rota)
